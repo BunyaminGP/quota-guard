@@ -66,15 +66,15 @@ Then start Codex, open `/hooks` and **trust** the two quota-guard hooks. Codex
 never runs untrusted hooks; check again after an update. Without the plugin
 system: clone the repo and run `python quota-guard/codex/install.py`.
 
-**Antigravity CLI**: `agy plugin install` takes a local folder, so clone first:
+**Antigravity CLI**: from a terminal:
 
 ```bash
-git clone https://github.com/BunyaminGP/quota-guard
-agy plugin install ./quota-guard
+agy plugin install https://github.com/BunyaminGP/quota-guard
 ```
 
-Restart Antigravity. `quota-guard/agy/install.ps1` / `install.sh` are the
-alternative that also installs the `agy-run` launcher (use one of the two).
+Restart Antigravity. (`agy plugin install <folder>` works from a clone too.
+`quota-guard/agy/install.ps1` / `install.sh` are the alternative that also
+installs the `agy-run` launcher; use one of the two.)
 
 **Notifications (optional, all tools):** subscribe to an ntfy topic on your phone
 and put its URL in `~/.quota-guard/settings.json` (see the next section). Claude

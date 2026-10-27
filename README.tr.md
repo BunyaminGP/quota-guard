@@ -67,15 +67,15 @@ ver. Codex onaylanmamış kancaları çalıştırmaz; güncellemeden sonra tekra
 Eklenti sistemi olmadan: repoyu klonla ve `python quota-guard/codex/install.py`
 çalıştır.
 
-**Antigravity CLI**: `agy plugin install` yerel bir klasör istiyor, önce klonla:
+**Antigravity CLI**: terminalden:
 
 ```bash
-git clone https://github.com/BunyaminGP/quota-guard
-agy plugin install ./quota-guard
+agy plugin install https://github.com/BunyaminGP/quota-guard
 ```
 
-Antigravity'yi yeniden başlat. `quota-guard/agy/install.ps1` / `install.sh`
-alternatiftir ve `agy-run` başlatıcısını da kurar (ikisinden birini kullan).
+Antigravity'yi yeniden başlat. (Klonladıysan `agy plugin install <klasör>` da
+olur. `quota-guard/agy/install.ps1` / `install.sh` alternatiftir ve `agy-run`
+başlatıcısını da kurar; ikisinden birini kullan.)
 
 **Bildirimler (isteğe bağlı, tüm araçlar):** telefonunda bir ntfy konusuna abone
 ol ve URL'sini `~/.quota-guard/settings.json` dosyasına yaz (sonraki bölüm).

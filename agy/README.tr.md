@@ -29,10 +29,12 @@ quota-guard'ın Antigravity bölümü, kimlik bilgisi/anahtar dosyalarına dokun
 
 ## Kurulum ve Doğrulama
 
-Önerilen: depo kökünü Antigravity eklenti yöneticisiyle kur, sonra Antigravity'yi
-yeniden başlat:
+Önerilen: Antigravity eklenti yöneticisiyle kur, sonra Antigravity'yi yeniden
+başlat:
 ```bash
-agy plugin validate . --strict   # quota-guard klasöründen
+agy plugin install https://github.com/BunyaminGP/quota-guard
+# ya da quota-guard klasöründen:
+agy plugin validate . --strict
 agy plugin install .
 ```
 

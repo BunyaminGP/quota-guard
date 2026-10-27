@@ -29,10 +29,12 @@ quota-guard's Antigravity part monitors your 5-hour session and 7-day weekly quo
 
 ## Installation
 
-Recommended: install the repo root with the Antigravity plugin manager, then
-restart Antigravity:
+Recommended: install it with the Antigravity plugin manager, then restart
+Antigravity:
 ```bash
-agy plugin validate . --strict   # from the quota-guard checkout
+agy plugin install https://github.com/BunyaminGP/quota-guard
+# or, from a quota-guard checkout:
+agy plugin validate . --strict
 agy plugin install .
 ```
 
