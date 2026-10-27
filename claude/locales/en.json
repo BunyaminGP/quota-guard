@@ -1,0 +1,37 @@
+{
+  "_comment": "cc-quota-guard message catalog. Only text a HUMAN reads is ever sourced from here (cc-run's terminal lines, the hook's systemMessage) — never what Claude itself is instructed (the reason field, RULES/PROMPT text), which stays English always regardless of language. Placeholders are Python str.format() {name} fields; keep the {braces} exactly, translate everything else, and put them in whatever word order the language needs — order does not matter to str.format(). See scripts/i18n.py for how this file is loaded and README.md's Language section for how to add a new one.",
+
+  "label_session": "5-hour session",
+  "label_week": "weekly",
+
+  "soft_stop": "⛔ Quota threshold reached ({label} {pct}%) — Claude is wrapping up cleanly. Reset: {resets_at}",
+  "hard_stop_reverted": "⛔ HARD quota threshold ({label} {pct}%) — item reverted. Reset: {resets_at}",
+  "hard_stop_clean": "⛔ HARD quota threshold ({label} {pct}%) — clean stop. Reset: {resets_at}",
+
+  "hard_abort_on_git": "→ [cc-run] --enable-hard-abort passed: hard-abort is ON for this run (git stash on a HARD threshold).",
+  "hard_abort_on_nogit": "⚠️  [cc-run] --enable-hard-abort passed but this isn't a git repo: hard-abort will fall back to a clean stop.",
+  "hard_abort_off": "→ [cc-run] hard-abort not forced here — using your plugin/project configuration (built-in default: off).",
+  "archived_progress": "ℹ️  [cc-run] Previous run's finished progress.md archived (this project already had a completed run here).",
+  "starting": "▶️  [cc-run] Starting (soft={soft}%, hard-session={hard_session}%, weekly-soft={weekly_soft}%, hard-weekly={hard_weekly}%, model={model})",
+  "resuming": "▶️  [cc-run] Resuming where it left off (round {iter})",
+  "still_working_item": "⏳ [cc-run] still working ({waited}s) — current item: {item}",
+  "still_working": "⏳ [cc-run] still working ({waited}s)",
+  "round_timeout": "⚠️  [cc-run] No progress for {waited}s (limit $CC_ROUND_TIMEOUT={max_wait}s) — assuming this round is stuck (e.g. the network dropped mid-request) and ending it so it can be retried.",
+  "round_failed_retry": "⚠️  [cc-run] Round ended abnormally (exit {status}), attempt {attempt}/{max_retries} — likely a transient issue (e.g. network down). Retrying in {backoff}s.",
+  "giving_up": "❌ [cc-run] Round failed (exit {status}) {count} times in a row — giving up.",
+  "giving_up_hint": "    Check your network / the claude CLI, then resume manually: claude -c   (or re-run cc-run — .cc-quota/progress.md has what's left).",
+  "task_complete": "✅ [cc-run] Task complete (CC_QUOTA_DONE).",
+  "hard_reverted_sleep": "⏸️  [cc-run] HARD quota threshold ({window}). '{aborted}' was reverted. Reset: {resets}. Sleeping {secs}s → resuming ~{wake}.",
+  "threshold_sleep": "⏸️  [cc-run] Quota threshold ({window}, mode={mode}). Reset: {resets}. Sleeping {secs}s → resuming ~{wake}.",
+  "ended_own": "ℹ️  [cc-run] No STOP marker and no DONE signal — Claude ended the turn on its own. Stopping.",
+  "ended_own_hint": "    (If you expected it to continue, check .cc-quota/progress.md and the terminal output.)",
+
+  "chat_resume_suffix": "Auto-resume: {time} (keep this Claude Code window open).",
+  "chat_quota_reset": "🔋 Quota reset ({label} now {pct}%) — resuming the chat automatically.",
+  "chat_quota_reset_nopct": "🔋 Quota reset — resuming the chat automatically.",
+  "chat_working": "▶️ Claude is working again, continuing where it left off.",
+  "chat_done": "✅ Done — Claude finished the resumed task.",
+  "chat_turn_done": "✅ Claude finished its resumed turn — check the chat for the result.",
+  "chat_schedule_failed": "⚠️ Couldn't schedule the automatic resume — type 'continue' in the chat after the quota resets ({time}).",
+  "chat_limit_error": "⛔ Claude stopped on a usage-limit error before the guard could step in — type 'continue' in the chat after the quota resets."
+}

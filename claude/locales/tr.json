@@ -1,0 +1,37 @@
+{
+  "_comment": "cc-quota-guard mesaj kataloğu. Sadece bir İNSANIN okuduğu metin buradan geliyor (cc-run'ın terminal satırları, hook'un systemMessage'ı) — Claude'un kendisine verilen talimatlar (reason alanı, RULES/PROMPT metni) hiçbir zaman buradan geçmez, dil ayarından bağımsız olarak her zaman İngilizce kalır. Yer tutucular Python str.format() {name} alanlarıdır; {süslü parantezleri} aynen koru, geri kalan her şeyi çevir, kelimeleri dilin gerektirdiği sırada kullanabilirsin — str.format() sıraya bakmaz. Bu dosyanın nasıl yüklendiği için scripts/i18n.py'ye, yeni dil ekleme talimatları için README.md'nin Language bölümüne bak.",
+
+  "label_session": "5 saatlik session",
+  "label_week": "haftalık",
+
+  "soft_stop": "⛔ Kota eşiği aşıldı ({label} %{pct}) — Claude temiz bir şekilde topluyor. Sıfırlanma: {resets_at}",
+  "hard_stop_reverted": "⛔ SERT kota eşiği ({label} %{pct}) — madde geri alındı. Sıfırlanma: {resets_at}",
+  "hard_stop_clean": "⛔ SERT kota eşiği ({label} %{pct}) — temiz durdu. Sıfırlanma: {resets_at}",
+
+  "hard_abort_on_git": "→ [cc-run] --enable-hard-abort verildi: bu çalıştırmada hard-abort AÇIK (SERT eşikte git stash).",
+  "hard_abort_on_nogit": "⚠️  [cc-run] --enable-hard-abort verildi ama bu bir git deposu değil: hard-abort temiz durmaya düşecek.",
+  "hard_abort_off": "→ [cc-run] hard-abort burada zorlanmadı — plugin/proje yapılandırman kullanılıyor (varsayılan: kapalı).",
+  "archived_progress": "ℹ️  [cc-run] Önceki çalıştırmanın tamamlanmış progress.md dosyası arşivlendi (bu projede zaten tamamlanmış bir çalıştırma vardı).",
+  "starting": "▶️  [cc-run] Başlıyor (yumuşak=%{soft}, sert-session=%{hard_session}, haftalık-yumuşak=%{weekly_soft}, sert-haftalık=%{hard_weekly}, model={model})",
+  "resuming": "▶️  [cc-run] Kaldığı yerden devam ediyor (round {iter})",
+  "still_working_item": "⏳ [cc-run] hâlâ çalışıyor ({waited}sn) — güncel madde: {item}",
+  "still_working": "⏳ [cc-run] hâlâ çalışıyor ({waited}sn)",
+  "round_timeout": "⚠️  [cc-run] {waited}sn süredir ilerleme yok (sınır $CC_ROUND_TIMEOUT={max_wait}sn) — bu round'un asıldığı varsayılıp (ör. ağ bağlantısı koptu) yeniden denenebilmesi için sonlandırılıyor.",
+  "round_failed_retry": "⚠️  [cc-run] Round (çıkış {status}) anormal bitti, deneme {attempt}/{max_retries} — muhtemelen geçici bir sorun (ör. ağ kesildi). {backoff}sn sonra yeniden denenecek.",
+  "giving_up": "❌ [cc-run] Round (çıkış {status}) art arda {count} kez başarısız oldu — pes ediliyor.",
+  "giving_up_hint": "    Ağını / claude CLI'ni kontrol et, sonra elle devam et: claude -c   (ya da cc-run'ı tekrar çalıştır — kalan işler .cc-quota/progress.md'da).",
+  "task_complete": "✅ [cc-run] Görev tamamlandı (CC_QUOTA_DONE).",
+  "hard_reverted_sleep": "⏸️  [cc-run] SERT kota eşiği ({window}). '{aborted}' geri alındı. Sıfırlanma: {resets}. {secs}sn uyunuyor → ~{wake} civarı devam edilecek.",
+  "threshold_sleep": "⏸️  [cc-run] Kota eşiği ({window}, mod={mode}). Sıfırlanma: {resets}. {secs}sn uyunuyor → ~{wake} civarı devam edilecek.",
+  "ended_own": "ℹ️  [cc-run] STOP işaretçisi yok, DONE sinyali de yok — Claude turu kendiliğinden bitirdi. Durduruluyor.",
+  "ended_own_hint": "    (Devam etmesini bekliyorduysan .cc-quota/progress.md dosyasına ve terminal çıktısına bak.)",
+
+  "chat_resume_suffix": "Otomatik devam: {time} (Claude Code penceresi açık kalmalı).",
+  "chat_quota_reset": "🔋 Kota yenilendi ({label} şu an %{pct}) — sohbet otomatik sürdürülüyor.",
+  "chat_quota_reset_nopct": "🔋 Kota yenilendi — sohbet otomatik sürdürülüyor.",
+  "chat_working": "▶️ Claude kaldığı yerden çalışmaya devam ediyor.",
+  "chat_done": "✅ Bitti — Claude kaldığı işi tamamladı.",
+  "chat_turn_done": "✅ Claude devam turunu bitirdi — sonucu sohbetten kontrol et.",
+  "chat_schedule_failed": "⚠️ Otomatik devam zamanlanamadı — kota yenilenince ({time}) sohbete 'devam' yaz.",
+  "chat_limit_error": "⛔ Claude kullanım limiti hatasıyla durdu (koruma araya giremedi) — kota yenilenince sohbete 'devam' yaz."
+}

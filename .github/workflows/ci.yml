@@ -1,0 +1,66 @@
+name: CI
+
+"on":
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Pinned: the Claude suite was hardened against a Windows +
+          # very-new-CPython subprocess/pytest-capture interaction (see
+          # claude/pytest.ini).
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Manifests and locales parse
+        run: |
+          python -c "import json; [json.load(open(f, encoding='utf-8')) for f in ['.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.codex-plugin/plugin.json', '.antigravity-plugin/plugin.json', 'hooks.json', 'claude/hooks/hooks.json', 'codex/hooks/hooks.json']]"
+          python -c "import json,glob; [json.load(open(f, encoding='utf-8')) for f in glob.glob('*/locales/*.json')]"
+          python -m py_compile common/resume_core.py
+
+      - name: Claude Code — compile checks
+        working-directory: claude
+        run: |
+          python -m py_compile scripts/quota_gate.py scripts/usage.py scripts/stream_render.py scripts/i18n.py scripts/notify.py scripts/chat_resume.py
+          bash -n bin/cc-run
+          bash -n install.sh
+          bash -n tests/test_cc_run.sh
+          python tests/check_bash32_compat.py bin/cc-run install.sh tests/test_cc_run.sh shell/cc-run.sh
+
+      - name: Claude Code — pytest
+        working-directory: claude
+        run: python -m pytest
+
+      - name: Claude Code — cc-run tests (bash)
+        working-directory: claude
+        run: bash tests/test_cc_run.sh
+
+      - name: Codex CLI — pytest
+        working-directory: codex
+        run: |
+          python -m py_compile scripts/common.py scripts/notify.py scripts/process.py scripts/quota_gate.py scripts/resume_watcher.py scripts/run.py scripts/usage.py install.py
+          python -m pytest -q
+
+      - name: Antigravity CLI — pytest
+        working-directory: agy
+        run: |
+          python -m py_compile scripts/quota_gate.py scripts/usage.py scripts/stream_render.py scripts/i18n.py scripts/notify.py scripts/agy_runner.py
+          python -m pytest -q

@@ -1,0 +1,6 @@
+{
+  "hooks": {
+    "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "python \"${PLUGIN_ROOT}/codex/scripts/quota_gate.py\"", "timeout": 30}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "python \"${PLUGIN_ROOT}/codex/scripts/quota_gate.py\"", "timeout": 30}]}]
+  }
+}

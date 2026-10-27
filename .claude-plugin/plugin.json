@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "quota-guard",
+  "displayName": "quota-guard",
+  "description": "Quota guard for AI coding agents (Claude Code, Codex CLI, Antigravity CLI): stops at a clean checkpoint before you hit your usage limit and resumes the chat by itself after the reset, with phone notifications (stopped, quota reset, working again, done).",
+  "version": "2.0.0",
+  "author": {
+    "name": "Bünyamin Güneypınar"
+  },
+  "homepage": "https://github.com/BunyaminGP/quota-guard",
+  "repository": "https://github.com/BunyaminGP/quota-guard",
+  "license": "MIT",
+  "keywords": [
+    "quota",
+    "rate-limit",
+    "usage",
+    "hooks",
+    "auto-resume",
+    "claude-code",
+    "codex",
+    "antigravity"
+  ],
+  "hooks": "./claude/hooks/hooks.json",
+  "userConfig": {
+    "session_soft": {
+      "type": "number",
+      "title": "Soft threshold — 5-hour session (%)",
+      "description": "At this usage %, Claude finishes the current todo item, then stops cleanly (commits, writes progress notes).",
+      "default": 80,
+      "min": 1,
+      "max": 100
+    },
+    "session_hard": {
+      "type": "number",
+      "title": "Hard threshold — 5-hour session (%)",
+      "description": "At this usage %, Claude can be stopped mid-item. With auto-revert off (default) this just forces a clean stop; with it on, the in-progress item is reverted with git stash.",
+      "default": 95,
+      "min": 1,
+      "max": 100
+    },
+    "weekly_soft": {
+      "type": "number",
+      "title": "Soft threshold — weekly (%)",
+      "description": "At this usage %, Claude finishes the current todo item, then stops cleanly — same as the session soft threshold, but for the 7-day weekly quota.",
+      "default": 97,
+      "min": 1,
+      "max": 100
+    },
+    "weekly_hard": {
+      "type": "number",
+      "title": "Hard threshold — weekly (%)",
+      "description": "Same as the session hard threshold, but for the 7-day weekly quota.",
+      "default": 98,
+      "min": 1,
+      "max": 100
+    },
+    "chat_auto_resume": {
+      "type": "boolean",
+      "title": "Auto-resume chats after the quota resets",
+      "description": "On by default. When a threshold stops Claude in a normal chat, Claude schedules its own wake-up (Claude Code's CronCreate) for the reset time, and the chat continues by itself — no cc-run needed. The Claude Code window has to stay open until then. With notify_url set you get pings for: stopped, quota reset, working again, done. cc-run runs are unaffected.",
+      "default": true
+    },
+    "hard_abort_enabled": {
+      "type": "boolean",
+      "title": "Enable auto-revert (git stash) on the hard threshold",
+      "description": "Off by default. When on, a hard threshold hit mid-item automatically reverts that item's changes with git stash and redoes it after the quota resets. Read the README's Safety section before enabling this.",
+      "default": false
+    },
+    "language": {
+      "type": "string",
+      "title": "Language / Dil",
+      "description": "Language for the hook's user-facing status line (systemMessage) when a threshold stops Claude. Claude itself is always instructed in English regardless of this setting — this only affects what you, the human, see. Any code with a matching locales/<code>.json file works (currently: en, tr); an unrecognized code falls back to English.",
+      "default": "en"
+    },
+    "notify_url": {
+      "type": "string",
+      "title": "Notification webhook URL (optional)",
+      "description": "Sends a short status ping (threshold hit, resumed, done, gave up) to this URL via HTTP POST — tested against ntfy.sh (e.g. https://ntfy.sh/your-topic-name). Never task content or file names, only the same short status line already shown to you. Leave empty to disable. Deliberately never read from .cc-quota/config.json — only this screen or the CC_NOTIFY_URL env var can set it, since a cloned project's config.json setting this would otherwise be able to silently exfiltrate your session status to a URL you don't control.",
+      "default": ""
+    }
+  }
+}

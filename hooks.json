@@ -1,0 +1,49 @@
+{
+  "quota-guard": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ./agy/scripts/quota_gate.py --event PreInvocation",
+        "timeout": 15
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./agy/scripts/quota_gate.py --event PreToolUse",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./agy/scripts/quota_gate.py --event PostToolUse",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ./agy/scripts/quota_gate.py --event PostInvocation",
+        "timeout": 15
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 ./agy/scripts/quota_gate.py --event Stop",
+        "timeout": 15
+      }
+    ]
+  }
+}

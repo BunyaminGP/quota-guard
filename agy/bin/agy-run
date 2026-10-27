@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# agy-run: Unix launcher for scripts/agy_runner.py (Bash 3.2+ compatible)
+set -uo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  case "$SOURCE" in
+    /*) ;;
+    *) SOURCE="$DIR/$SOURCE" ;;
+  esac
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+CANDIDATE_ROOT="$(cd -P "$SCRIPT_DIR/.." && pwd)"
+
+if [ -n "${AGY_QUOTA_GUARD_HOME:-}" ]; then
+  PLUGIN_ROOT="$AGY_QUOTA_GUARD_HOME"
+elif [ -f "$CANDIDATE_ROOT/scripts/agy_runner.py" ]; then
+  PLUGIN_ROOT="$CANDIDATE_ROOT"
+else
+  PLUGIN_ROOT="$HOME/.agents/plugins/quota-guard/agy"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$PLUGIN_ROOT/scripts/agy_runner.py" "$@"
+elif command -v python >/dev/null 2>&1; then
+  exec python "$PLUGIN_ROOT/scripts/agy_runner.py" "$@"
+else
+  echo "[agy-quota-guard] Error: python3 or python is required." >&2
+  exit 127
+fi

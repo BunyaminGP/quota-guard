@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# per-project runtime state written by the hooks
+.cc-quota/
+.codex-quota/
+.agy-quota/

@@ -1,0 +1,11 @@
+{
+  "name": "quota-guard",
+  "displayName": "quota-guard",
+  "version": "2.0.0",
+  "description": "Quota guard for AI coding agents (Claude Code, Codex CLI, Antigravity CLI): stops at a clean checkpoint before you hit your usage limit and resumes the chat by itself after the reset, with phone notifications (stopped, quota reset, working again, done).",
+  "author": {
+    "name": "Bünyamin Güneypınar"
+  },
+  "homepage": "https://github.com/BunyaminGP/quota-guard",
+  "repository": "https://github.com/BunyaminGP/quota-guard"
+}

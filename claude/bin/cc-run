@@ -1,0 +1,545 @@
+#!/usr/bin/env bash
+# cc-run — quota-aware orchestrator for Claude Code.
+#
+# Two-tier quota protection:
+#   - SOFT threshold (--threshold, default 80): the current todo item is
+#     allowed to finish, then Claude wraps up cleanly (commit + progress.md).
+#   - HARD threshold (--session-hard default 95, --weekly-hard default 98):
+#     can fire mid-item. By default this only forces a clean stop (nothing
+#     is touched automatically). Pass --enable-hard-abort to also revert the
+#     in-progress item with `git stash` and redo it from scratch after reset
+#     — see README before turning this on, it rewrites your working tree.
+#
+# Flags are only exported as CC_* env vars when you actually pass them. If
+# you don't pass a flag, quota_gate.py falls back to (in order): your
+# project's .cc-quota/config.json, the values you picked in the plugin's
+# install/configure screen, then the built-in defaults above. Passing a flag
+# here always wins over all of those, for this run only.
+#
+# Flow:
+#   1) Starts Claude with the task (thresholds passed as env vars, if given).
+#   2) The quota_gate hook (installed on TodoWrite + every tool) stops Claude
+#      when a threshold is hit (soft: clean stop; hard: clean stop, or
+#      revert+stop if hard-abort is enabled) and leaves .cc-quota/STOP.json.
+#   3) This script reads the reset time from STOP.json, SLEEPS until then,
+#      removes the marker, and resumes with `claude -c`.
+#   4) When Claude finishes the whole task it writes "CC_QUOTA_DONE" into
+#      .cc-quota/progress.md; this script sees that and stops.
+#
+# Usage:
+#   cc-run --threshold 80 --session-hard 95 --weekly-hard 98 "the task..."
+#   cc-run --enable-hard-abort @task.md
+#   cc-run "the task..."   # use whatever plugin/project config says (or built-in defaults)
+#
+# Requires: bash, python3, claude (CLI). The hard-abort revert also requires git.
+set -euo pipefail
+
+# Minimal bilingual error helper for the handful of messages that can occur
+# before python3's availability is confirmed a few lines below — and so
+# before msg() (later in this script, which shells out to scripts/i18n.py
+# and therefore needs python3) can be used at all. Deliberately NOT part of
+# the locales/*.json system: it's hardcoded en/tr only, checked via the
+# CC_LANG env var alone (no config.json — that needs python3 too). Adding a
+# language to locales/ does not extend these four messages; that's an
+# accepted, narrow limitation given how rare these invocation errors are.
+err() {
+  local key="$1"; shift
+  case "${CC_LANG:-}" in
+    [Tt][Rr])
+      case "$key" in
+        no_task)   echo "Hata: görev verilmedi." >&2 ;;
+        task_file) echo "Hata: görev dosyası bulunamadı: $1" >&2 ;;
+        no_claude) echo "Hata: 'claude' CLI bulunamadı." >&2 ;;
+        no_python) echo "Hata: python3 gerekli." >&2 ;;
+      esac
+      ;;
+    *)
+      case "$key" in
+        no_task)   echo "Error: no task given." >&2 ;;
+        task_file) echo "Error: task file not found: $1" >&2 ;;
+        no_claude) echo "Error: 'claude' CLI not found." >&2 ;;
+        no_python) echo "Error: python3 is required." >&2 ;;
+      esac
+      ;;
+  esac
+}
+
+THRESHOLD=""
+SESSION_HARD=""
+WEEKLY_SOFT=""
+WEEKLY_HARD=""
+HARD_ABORT=""
+MODEL=""
+PROMPT_STDIN=""
+BUFFER_SECONDS="${CC_RESUME_BUFFER:-60}"
+# So Claude can keep editing headlessly across resumes without asking for
+# approval each time. WARNING: acceptEdits lets Claude make file edits
+# WITHOUT asking. If that's not acceptable, set CC_CLAUDE_ARGS="" and run
+# interactively instead.
+#
+# --allowedTools "Bash(git *)" is included in the default (not just
+# acceptEdits alone) because acceptEdits does NOT cover Bash tool calls —
+# confirmed live: a headless run hit "This command requires approval" on
+# every git add/commit attempt and stalled with no one to answer the
+# prompt, then ended the turn without committing. Unlike hard_abort_enabled
+# (genuinely optional, opt-in only), git commits are not a destructive
+# extra here — this tool's own design already assumes they happen at every
+# item boundary (progress tracking, and hard-abort's "clean tree at item
+# start" assumption), so refusing to grant this by default doesn't make
+# the tool safer, it just makes it silently stall on real tasks.
+#
+# An array, not a plain string: "Bash(git *)" contains a literal space
+# inside one logical argument, which a plain string later expanded
+# unquoted (the old `claude $CLAUDE_ARGS ...`) would incorrectly word-split
+# into separate argv entries. ${CC_CLAUDE_ARGS+set} (not `-n`) distinguishes
+# "unset" (use the default array below) from "set to empty string"
+# (CC_CLAUDE_ARGS="" for interactive mode, per the WARNING above — must
+# still mean "no extra args", not silently fall back to the default here).
+# A CC_CLAUDE_ARGS value you DO set is still word-split (pre-existing
+# limitation): it can't itself contain a value needing an embedded space.
+if [[ -n "${CC_CLAUDE_ARGS+set}" ]]; then
+  read -ra CLAUDE_ARGS_ARR <<< "$CC_CLAUDE_ARGS"
+else
+  CLAUDE_ARGS_ARR=(--permission-mode acceptEdits --allowedTools "Bash(git *)")
+fi
+PROJ="$(pwd)"
+
+usage() {
+  cat <<EOF
+cc-run — quota-aware Claude Code runner
+
+  --threshold N        Session SOFT threshold (default 80 if not set anywhere else). Finishes the current item, then stops.
+  --session-hard N     Session HARD threshold (default 95 if not set anywhere else). Can fire mid-item.
+  --weekly-soft N      Weekly SOFT threshold (default 97 if not set anywhere else). Finishes the current item, then stops.
+  --weekly-hard N      Weekly HARD threshold (default 98 if not set anywhere else). Can fire mid-item.
+  --enable-hard-abort   Force auto-revert (git stash) ON for this run when a HARD threshold fires.
+                         If you don't pass this, hard-abort follows your plugin/project
+                         configuration (built-in default: off).
+  --model NAME          Model to use (alias like 'opus'/'sonnet'/'fable', or a full model
+                         name). If you don't pass this, whatever your 'claude' CLI's own
+                         default is applies (same as running 'claude' with no --model).
+  --help                this help
+
+None of these flags are required — without them, thresholds come from your
+project's .cc-quota/config.json, then the plugin's configure screen, then
+the built-in defaults (80 / 95 / 98 / hard-abort off).
+
+Task: the last argument. Plain text, or @file.md (the file's content becomes the task).
+EOF
+}
+
+TASK=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --threshold)        THRESHOLD="$2"; shift 2;;
+    --session-hard)     SESSION_HARD="$2"; shift 2;;
+    --weekly-soft)      WEEKLY_SOFT="$2"; shift 2;;
+    --weekly-hard)      WEEKLY_HARD="$2"; shift 2;;
+    --enable-hard-abort) HARD_ABORT="1"; shift;;
+    --model)             MODEL="$2"; shift 2;;
+    --help|-h)           usage; exit 0;;
+    *)                   TASK="$1"; shift;;
+  esac
+done
+
+if [[ -z "$TASK" ]]; then
+  err no_task; usage; exit 1
+fi
+if [[ "$TASK" == @* ]]; then
+  f="${TASK:1}"
+  [[ -f "$f" ]] || { err task_file "$f"; exit 1; }
+  TASK="$(cat "$f")"
+fi
+
+command -v claude >/dev/null   || { err no_claude; exit 1; }
+command -v python3 >/dev/null  || { err no_python; exit 1; }
+
+# Only export what was actually passed on the command line — an unset var
+# here lets quota_gate.py fall through to project config / plugin config /
+# built-in defaults instead of being silently overridden by this script.
+[[ -n "$THRESHOLD" ]]    && export CC_SESSION_SOFT="$THRESHOLD"
+[[ -n "$SESSION_HARD" ]] && export CC_SESSION_HARD="$SESSION_HARD"
+[[ -n "$WEEKLY_SOFT" ]]  && export CC_WEEKLY_SOFT="$WEEKLY_SOFT"
+[[ -n "$WEEKLY_HARD" ]]  && export CC_WEEKLY_HARD="$WEEKLY_HARD"
+[[ "$HARD_ABORT" == "1" ]] && export CC_HARD_ABORT="1"
+[[ -n "$MODEL" ]] && CLAUDE_ARGS_ARR+=(--model "$MODEL")
+# Tells the hook this is a cc-run session: cc-run sleeps and resumes on its
+# own, so the chat-mode auto-resume (CronCreate wake-up) must stay off here.
+export CC_QUOTA_RUNNER=1
+
+if git -C "$PROJ" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  IS_GIT=1
+else
+  IS_GIT=0
+fi
+
+# Windows/Git-Bash note: bash sees paths like /c/proje/hns, but python3 here
+# is typically a native Win32 build that can't open that form at all. When
+# cygpath is available (Git Bash ships it), convert to a form python3 can
+# open; elsewhere (macOS/Linux) bash and python3 already agree on paths, so
+# this is a no-op passthrough. Every python3 call below that touches a file
+# path uses the _PY variant; bash's own file tests keep using the original.
+to_py_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$1"
+  else
+    printf '%s' "$1"
+  fi
+}
+PROJ_PY="$(to_py_path "$PROJ")"
+
+# Resolved once, relative to this script (works whether this is the
+# plugin's cached copy or an install.sh copy — both keep bin/, scripts/,
+# and locales/ as siblings). Reused below for the stream renderer too.
+CC_RUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCALES_DIR="$CC_RUN_DIR/../locales"
+I18N_PY="$CC_RUN_DIR/../scripts/i18n.py"
+
+# Language for cc-run's OWN terminal messages — never affects what Claude
+# itself is instructed (the RULES/PROMPT text below always stays English).
+# Precedence: CC_LANG env var > .cc-quota/config.json's "language" key >
+# "en". This mirrors quota_gate.py's own config precedence, but with only
+# two tiers: cc-run is invoked directly by the user rather than by Claude
+# Code's hook system, so it never sees the plugin's own userConfig screen
+# (CLAUDE_PLUGIN_OPTION_* env vars are only set for hook invocations) —
+# that tier only reaches the hook's own systemMessage, not this script's
+# output. Any code with a matching locales/<code>.json file is accepted —
+# adding a language is dropping in that one file, nothing here changes.
+# `tr '[:upper:]' '[:lower:]'` rather than bash 4's `${var,,}` for
+# portability to older bash (e.g. macOS's stock /bin/bash is 3.2).
+CCLANG="en"
+CC_LANG_LOWER="$(printf '%s' "${CC_LANG:-}" | tr '[:upper:]' '[:lower:]')"
+if [[ -n "$CC_LANG_LOWER" && -f "$LOCALES_DIR/$CC_LANG_LOWER.json" ]]; then
+  CCLANG="$CC_LANG_LOWER"
+elif [[ -z "$CC_LANG_LOWER" ]]; then
+  # Paths are converted OUTSIDE the $() and passed as argv (sys.argv), not
+  # interpolated into the python source: interpolation would both break on
+  # quotes/apostrophes in paths and nest $(to_py_path ...) inside a
+  # double-quoted string inside $() — a construct bash 3.2's naive $()
+  # matcher (macOS's stock /bin/bash) can misparse. See the HARD_RULE_TEXT
+  # comment below for the same class of problem.
+  CFG_JSON_PY="$(to_py_path "$PROJ/.cc-quota/config.json")"
+  LOCALES_DIR_PY="$(to_py_path "$LOCALES_DIR")"
+  CFG_LANG=$(python3 -c '
+import json, os, sys
+try:
+    with open(sys.argv[1]) as f:
+        d = json.load(f)
+    v = str(d.get("language", "")).strip().lower()
+    print(v if v and os.path.isfile(os.path.join(sys.argv[2], v + ".json")) else "")
+except Exception:
+    print("")
+' "$CFG_JSON_PY" "$LOCALES_DIR_PY" 2>/dev/null)
+  [[ -n "$CFG_LANG" ]] && CCLANG="$CFG_LANG"
+fi
+
+# Localized status line for THIS SCRIPT's own terminal output only. $1 is
+# a message key, remaining args are name=value pairs — see i18n.py, which
+# does the actual lookup/formatting so cc-run and quota_gate.py share one
+# message catalog (locales/*.json) instead of keeping two copies in sync.
+# Fails open to printing the bare key if i18n.py is missing/broken (e.g. a
+# corrupted install) rather than crashing or going silent.
+msg() {
+  local key="$1"; shift
+  # Captured into LAST_MSG (rather than left as a pure print) so call sites
+  # that also want to push a notification can reuse the exact same text
+  # instead of drafting a second copy of it — see notify() calls below.
+  LAST_MSG=$(python3 "$(to_py_path "$I18N_PY")" "$CCLANG" "$key" "$@" 2>/dev/null) || LAST_MSG="[cc-run] $key"
+  printf '%s\n' "$LAST_MSG"
+}
+
+if [[ "$HARD_ABORT" == "1" ]]; then
+  if [[ "$IS_GIT" == "1" ]]; then
+    msg hard_abort_on_git
+  else
+    msg hard_abort_on_nogit >&2
+  fi
+else
+  msg hard_abort_off
+fi
+
+MARKER="$PROJ/.cc-quota/STOP.json"
+MARKER_PY="$PROJ_PY/.cc-quota/STOP.json"
+PROGRESS="$PROJ/.cc-quota/progress.md"
+mkdir -p "$PROJ/.cc-quota"
+
+# If a PREVIOUS, unrelated run already finished in this project, its
+# progress.md still has "CC_QUOTA_DONE" in it. Without this, a brand-new
+# task started here would see that leftover marker after its very first
+# round and immediately report success — before Claude has done anything
+# for THIS task. Archive it so this run starts from a clean completion
+# state; the old file isn't lost, just renamed out of the way.
+if [[ -f "$PROGRESS" ]] && grep -q '^CC_QUOTA_DONE' "$PROGRESS"; then
+  mv "$PROGRESS" "${PROGRESS}.done-$(date +%Y%m%d%H%M%S)"
+  msg archived_progress
+fi
+
+# Computed BEFORE the heredoc below rather than inline as $( if ... ) inside
+# it: bash 3.2 (macOS's stock /bin/bash, which #!/usr/bin/env bash resolves
+# to on a default Mac) parses $(...) by naive character matching rather
+# than with the real shell parser (fixed in bash 4.0) — apostrophes inside
+# the double-quoted echo strings ("wasn't", 'git stash') make it lose track
+# of quoting, miscount the parentheses in the surrounding prose, and reject
+# the whole file as a syntax error before running a single line. Caught by
+# CI's macos runner, where bash -n exits 2 on the inline form.
+if [[ "$HARD_ABORT" == "1" ]]; then
+  HARD_RULE_TEXT="auto-revert is ON for this run — changes on the current item will be reverted with 'git stash' without your involvement and the item goes back to 'pending'. When you see this, do NOT commit (the revert already happened), just leave a short note and stop."
+else
+  HARD_RULE_TEXT="auto-revert wasn't forced on for this run; whether it fires depends on your plugin/project configuration (default: off, meaning you'll just be told to stop as safely as possible). If a message tells you changes were reverted, do NOT commit — just leave a short note and stop."
+fi
+
+# Read via a TOP-LEVEL heredoc rather than wrapping a cat-heredoc in
+# command substitution: bash 3.2 (macOS's stock /bin/bash) scans command
+# substitutions by naive character matching with no understanding of
+# heredocs, so the lone apostrophe in "you'll" below would open a phantom
+# quote region and make it miss the closing paren — rejecting the entire
+# file as a syntax error. A top-level heredoc has no such scanner
+# involved; any prose is safe in it, now and after future edits.
+# `read -d ''` reads to EOF; it then exits nonzero (no NUL delimiter
+# found), which `|| true` absorbs so `set -e` doesn't kill us.
+IFS= read -r -d '' RULES <<EOF || true
+
+--- QUOTA RULES (cc-run) ---
+A two-tier "quota gate" is active:
+- SOFT threshold: you may finish the current todo item; before moving to
+  the next one you'll get an instruction to wrap up cleanly (update
+  progress.md, commit, stop).
+- HARD threshold: can fire mid-item. $HARD_RULE_TEXT
+.cc-quota/progress.md is kept up to date in both cases; work resumes from
+there after the reset. If an item was reverted due to quota, progress.md
+says so explicitly — redo that item from scratch.
+When the ENTIRE task is done, append a line containing only "CC_QUOTA_DONE"
+to the end of .cc-quota/progress.md (this is the completion signal).
+
+--- VISIBILITY (cc-run) ---
+This runs headless — nothing you print reaches a screen except plain text
+output. So the person running this has SOME visibility instead of silence
+until the very end: right before you start each todo item, print one short
+line "-> <item>"; right after you finish one, print one short line
+"[done] <item>". Keep these to a few words each. This is in addition to,
+not instead of, your normal final summary.
+EOF
+
+# Current in_progress todo item's text, for heartbeat lines (best-effort).
+# Takes the project path as argv (not embedded in the script string) so it
+# works regardless of what characters are in it.
+current_item() {
+  python3 -c "
+import json, os, sys
+try:
+    with open(os.path.join(sys.argv[1], '.cc-quota', 'todos_state.json')) as f:
+        d = json.load(f)
+    ip = d.get('in_progress')
+    print(ip['content'] if ip else '')
+except Exception:
+    print('')
+" "$PROJ_PY" 2>/dev/null
+}
+
+# Path to the stream renderer (CC_RUN_DIR resolved earlier, alongside
+# LOCALES_DIR/I18N_PY). Empty if it's missing for some reason, in which
+# case we fall back to plain text output.
+STREAM_RENDERER="$CC_RUN_DIR/../scripts/stream_render.py"
+[[ -f "$STREAM_RENDERER" ]] || STREAM_RENDERER=""
+
+# Optional push notification for the moments this script itself controls
+# (resume happened, task complete, gave up) — the quota-threshold-hit
+# moment is notified separately, from inside the hook itself (quota_gate.py
+# runs as a different process and gets there first). Only fires if
+# CC_NOTIFY_URL is set (see README's Notifications section); notify.py
+# fails open on everything (no URL, bad URL, network down, timeout), so
+# `|| true` here is a second belt-and-suspenders layer, not the only one —
+# needed regardless, since this runs under `set -e` and a stray nonzero
+# exit from anywhere in the pipeline must never kill the wrapper over a
+# notification failure.
+NOTIFY_PY="$CC_RUN_DIR/../scripts/notify.py"
+notify() {
+  [[ -f "$NOTIFY_PY" ]] && python3 "$(to_py_path "$NOTIFY_PY")" "$1" "${2:-cc-quota-guard}" >/dev/null 2>&1
+  true
+}
+
+# Runs `claude <args>` in the background and prints a heartbeat line every
+# 15s while it's running, so a long silent stretch doesn't look like it
+# hung. When the stream renderer is available, output goes through
+# --output-format stream-json so we can also show which model actually ran
+# (aliases like "opus" resolve to a specific dated model) and which tool is
+# running — same underlying request, just parsed instead of printed raw.
+#
+# The prompt itself is fed to claude over stdin (PROMPT_STDIN, set by the
+# caller) rather than appended to "$@" as a CLI argument. `-p`/`-c -p` read
+# from stdin when no positional prompt is given ("useful for pipes" per
+# `claude --help`), and a task can be large — it's the contents of an
+# arbitrary @file.md. Passed as an argv element, that goes through
+# execve()/CreateProcess, which Windows caps at ~32K total command-line
+# characters; a task file anywhere near that size failed there with
+# "Argument list too long" (E2BIG) even though the same run was fine on
+# Linux/macOS's much higher ARG_MAX. `printf` below is a bash builtin, not
+# an external command, so writing PROMPT_STDIN through it never itself goes
+# through execve and isn't subject to that limit.
+#
+# Returns claude's (or the renderer's) real exit status — 124 if this round
+# was force-ended for running longer than CC_ROUND_TIMEOUT with no progress
+# (the convention `timeout(1)` uses). Callers must invoke this as the
+# condition of an `if` (see the main loop) so a non-zero return doesn't
+# trip `set -e` and kill the whole script — the entire point is to detect
+# the failure and retry, not to crash.
+run_claude_with_heartbeat() {
+  # ${arr[@]+"${arr[@]}"} rather than a bare "${arr[@]}": under `set -u`
+  # (active here), bash BEFORE 4.4 — including macOS's stock /bin/bash 3.2
+  # — treats expanding an EMPTY array as an unbound variable and aborts the
+  # script. CLAUDE_ARGS_ARR is genuinely empty whenever CC_CLAUDE_ARGS="" is
+  # set (the documented interactive escape hatch), so on a Mac that path
+  # would kill cc-run outright instead of running claude with no extra
+  # flags. The `+` form expands to nothing at all when the array is
+  # empty/unset and to the correctly-quoted elements otherwise, on both old
+  # and new bash. Not caught by tests/check_bash32_compat.py (that scans
+  # for parse-level `$()` poison patterns; this is a runtime-semantics
+  # difference) and not reproducible on a modern bash, so it's guarded
+  # here deliberately rather than discovered later on a user's Mac.
+  if [[ -n "$STREAM_RENDERER" ]]; then
+    printf '%s' "$PROMPT_STDIN" | claude ${CLAUDE_ARGS_ARR[@]+"${CLAUDE_ARGS_ARR[@]}"} --output-format stream-json --verbose "$@" \
+      | python3 "$(to_py_path "$STREAM_RENDERER")" &
+  else
+    printf '%s' "$PROMPT_STDIN" | claude ${CLAUDE_ARGS_ARR[@]+"${CLAUDE_ARGS_ARR[@]}"} "$@" &
+  fi
+  local pid=$!
+  local waited=0
+  local max_wait="${CC_ROUND_TIMEOUT:-3600}"
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 15
+    waited=$((waited + 15))
+    # It may have finished during that sleep — the heartbeat check only
+    # runs every 15s, so a fast round can still be alive at the top of this
+    # iteration but done by now. Recheck before treating it as stuck, so a
+    # quick, legitimate finish is never misreported as a timeout (124).
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    if [[ "$max_wait" -gt 0 && $waited -ge $max_wait ]]; then
+      msg round_timeout "waited=$waited" "max_wait=$max_wait" >&2
+      # Kills the tracked process (the renderer, or claude itself when the
+      # renderer isn't used); on the renderer path this closes its end of
+      # the pipe, which normally makes claude's own write fail shortly
+      # after and exit on its own too — not a guaranteed-instant kill of
+      # claude specifically, but good enough for a wrapper script like this.
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null
+      return 124
+    fi
+    local item
+    item="$(current_item)"
+    if [[ -n "$item" ]]; then
+      msg still_working_item "waited=$waited" "item=$item"
+    else
+      msg still_working "waited=$waited"
+    fi
+  done
+  wait "$pid"
+}
+
+# resets_at (ISO 8601) -> seconds to sleep from now. Falls back if missing.
+sleep_seconds_until() {
+  local iso="$1" fallback="$2"
+  python3 - "$iso" "$fallback" <<'PY'
+import sys, time
+from datetime import datetime, timezone
+iso, fallback = sys.argv[1], int(sys.argv[2])
+if not iso or iso == "null":
+    print(fallback); raise SystemExit
+try:
+    s = iso.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    secs = int(dt.timestamp() - time.time())
+    print(max(secs, 0))
+except Exception:
+    print(fallback)
+PY
+}
+
+is_done() { [[ -f "$PROGRESS" ]] && grep -q '^CC_QUOTA_DONE' "$PROGRESS"; }
+
+# Consecutive-failure tracking for the retry logic below: a round that ends
+# with no STOP marker and no CC_QUOTA_DONE is ambiguous on its own — it's
+# the same observable outcome whether Claude legitimately decided there was
+# nothing left to do, or the resume attempt never got off the ground (e.g.
+# the network was down at the exact moment it woke up to resume). The
+# round's own exit status disambiguates: a clean (0) exit with nothing left
+# to show for it is treated as "Claude ended the turn on its own" (existing
+# behavior, unchanged); a non-zero exit (including 124 from the round
+# timing out above) is treated as a transient failure worth retrying with
+# backoff, up to CC_MAX_RETRIES times, instead of silently giving up — the
+# entire point of this tool is surviving exactly this kind of interruption
+# unattended.
+MAX_RETRIES="${CC_MAX_RETRIES:-5}"
+RETRY_BACKOFF="${CC_RETRY_BACKOFF:-30}"
+CONSEC_FAILURES=0
+
+ITER=0
+while true; do
+  ITER=$((ITER+1))
+  rm -f "$MARKER"
+
+  if [[ $ITER -eq 1 ]]; then
+    msg starting "soft=${THRESHOLD:-default}" "hard_session=${SESSION_HARD:-default}" "weekly_soft=${WEEKLY_SOFT:-default}" "hard_weekly=${WEEKLY_HARD:-default}" "model=${MODEL:-claude default}"
+    PROMPT="$TASK"$'\n'"$RULES"
+    PROMPT_STDIN="$PROMPT"
+    if run_claude_with_heartbeat -p; then ROUND_STATUS=0; else ROUND_STATUS=$?; fi
+  else
+    msg resuming "iter=$ITER"
+    notify "$LAST_MSG" "cc-quota-guard: resumed"
+    RESUME_PROMPT="Read .cc-quota/progress.md. If an item was reverted due to quota (back to pending), redo it FROM SCRATCH; then continue the remaining tasks from where you left off.${RULES}"
+    PROMPT_STDIN="$RESUME_PROMPT"
+    if run_claude_with_heartbeat -c -p; then ROUND_STATUS=0; else ROUND_STATUS=$?; fi
+  fi
+
+  if is_done; then
+    msg task_complete
+    notify "$LAST_MSG" "cc-quota-guard: done"
+    break
+  fi
+
+  if [[ -f "$MARKER" ]]; then
+    CONSEC_FAILURES=0  # a real threshold stop happened — this round worked, unrelated to the retry counter below
+    MODE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("mode","soft"))' "$MARKER_PY" 2>/dev/null || echo "soft")
+    WINDOW=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("window",""))' "$MARKER_PY" 2>/dev/null || echo "")
+    RESETS=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("resets_at") or "")' "$MARKER_PY" 2>/dev/null || echo "")
+    ABORTED=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("aborted_item") or "")' "$MARKER_PY" 2>/dev/null || echo "")
+    # 5-hour fallback for session, 1-hour fallback for weekly if resets_at is missing.
+    FALLBACK=$([[ "$WINDOW" == "session" ]] && echo 18000 || echo 3600)
+    SECS=$(sleep_seconds_until "$RESETS" "$FALLBACK")
+    SECS=$((SECS + BUFFER_SECONDS))
+    WAKE=$(python3 -c 'import sys,datetime;print((datetime.datetime.now()+datetime.timedelta(seconds=int(sys.argv[1]))).strftime("%Y-%m-%d %H:%M:%S"))' "$SECS")
+    if [[ "$MODE" == "hard" && -n "$ABORTED" ]]; then
+      msg hard_reverted_sleep "window=$WINDOW" "aborted=$ABORTED" "resets=${RESETS:-unknown}" "secs=$SECS" "wake=$WAKE"
+    else
+      msg threshold_sleep "window=$WINDOW" "mode=$MODE" "resets=${RESETS:-unknown}" "secs=$SECS" "wake=$WAKE"
+    fi
+    sleep "$SECS"
+    continue
+  fi
+
+  # No marker, no done signal, and the round exited abnormally (non-zero —
+  # includes a network outage that made `claude` fail or hang past
+  # CC_ROUND_TIMEOUT above): retry with linear backoff instead of assuming
+  # Claude deliberately stopped, up to CC_MAX_RETRIES times.
+  if [[ "$ROUND_STATUS" -ne 0 ]]; then
+    CONSEC_FAILURES=$((CONSEC_FAILURES + 1))
+    if [[ "$CONSEC_FAILURES" -gt "$MAX_RETRIES" ]]; then
+      msg giving_up "status=$ROUND_STATUS" "count=$CONSEC_FAILURES" >&2
+      notify "$LAST_MSG" "cc-quota-guard: gave up"
+      msg giving_up_hint >&2
+      exit 1
+    fi
+    BACKOFF=$((RETRY_BACKOFF * CONSEC_FAILURES))
+    msg round_failed_retry "status=$ROUND_STATUS" "attempt=$CONSEC_FAILURES" "max_retries=$MAX_RETRIES" "backoff=$BACKOFF"
+    sleep "$BACKOFF"
+    continue
+  fi
+
+  # No marker, no done signal, clean exit: Claude finished the round on its own. Stop the loop.
+  msg ended_own
+  msg ended_own_hint
+  break
+done
