@@ -237,10 +237,12 @@ SH
 chmod +x "$SCENARIO_DIR/fakebin/claude"
 (cd "$SCENARIO_DIR/proj" && PATH="$SCENARIO_DIR/fakebin:$PATH" bash "$CC_RUN" "task" >/dev/null 2>&1)
 ARGV="$(cat "$SCENARIO_DIR/proj/argv.txt" 2>/dev/null || echo MISSING)"
-if echo "$ARGV" | grep -q -- '--allowedTools' && echo "$ARGV" | grep -q 'Bash(git \*)' && echo "$ARGV" | grep -q -- '--permission-mode'; then
-  pass "default args include --permission-mode and --allowedTools 'Bash(git *)' as one intact argument"
+if echo "$ARGV" | grep -q -- '--allowedTools' \
+   && echo "$ARGV" | grep -qx 'Bash(git add:\*),Bash(git commit:\*),Bash(git status:\*)' \
+   && ! echo "$ARGV" | grep -q 'Bash(git \*)' && echo "$ARGV" | grep -q -- '--permission-mode'; then
+  pass "default args grant only git add/commit/status, as one intact argument"
 else
-  fail "expected --allowedTools 'Bash(git *)' intact in argv; got: $ARGV"
+  fail "expected --allowedTools 'Bash(git add:*),Bash(git commit:*),Bash(git status:*)' intact in argv; got: $ARGV"
 fi
 
 echo "=== 12) CC_CLAUDE_ARGS=\"\" still means \"no extra args\" (not silently the default) ==="

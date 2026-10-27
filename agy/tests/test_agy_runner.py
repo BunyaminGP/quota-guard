@@ -338,3 +338,20 @@ def test_installed_windows_launcher_help_and_nonzero_exit_code(tmp_path):
         assert help_proc.returncode == 0
         assert "Usage: agy-run" in help_proc.stdout
 
+
+
+def test_runner_refuses_a_planted_progress_symlink(tmp_path):
+    qdir = tmp_path / ".agy-quota"
+    qdir.mkdir()
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me", encoding="utf-8")
+    try:
+        os.symlink(victim, qdir / "progress.md")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not available")
+    env = os.environ.copy()
+    env.update({"AGY_CLI_BIN": sys.executable, "AGY_PROJECT_DIR": str(tmp_path)})
+    proc = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "task"], stdin=subprocess.DEVNULL, capture_output=True,
+                          text=True, encoding="utf-8", cwd=str(tmp_path), env=env, timeout=15)
+    assert proc.returncode == 2 and "Refusing to run" in proc.stderr
+    assert victim.read_text(encoding="utf-8") == "keep me"

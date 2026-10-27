@@ -55,3 +55,13 @@ Earlier history of the Claude Code part (cc-quota-guard ≤ 1.0.3):
   `session.json`, `progress.md` notes, chat state) are written with a fresh
   `mkstemp` file + `os.replace`. A symlink a cloned repo planted at one of
   those paths is replaced, not followed (Codex already did this).
+- `agy-run` refuses to start when `.agy-quota/` or `.agy-quota/progress.md` is
+  a symlink, and writes `progress.md` atomically (it used to write through a
+  planted link).
+- `cc-run` grants only `git add`, `git commit` and `git status` by default
+  instead of `Bash(git *)`, which also allowed `git -c …`, aliases and
+  `git diff --output=<file>` without asking (command execution and file writes
+  for a prompt-injected headless run).
+- Codex: a `hook.lock` or `runner.lock` that is tracked by git (came with a
+  cloned repo), stale, or names a dead process no longer switches the guard
+  off.

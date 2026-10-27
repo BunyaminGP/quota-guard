@@ -20,6 +20,43 @@ def tracked(project, name):
     return git(project, 'ls-files', '--error-unmatch', '.codex-quota/' + name)[0] == 0
 
 
+HOOK_LOCK_STALE = 60  # seconds; hooks time out after 30
+
+
+def runner_active(project, folder):
+    """A codex-run runner really owns this project: runner.lock is untracked
+    and holds a live PID. A lock that came with a cloned repo (or one a crash
+    left behind) must not switch the guard off for every chat."""
+    lock = folder / 'runner.lock'
+    if lock.is_symlink() or not lock.is_file() or tracked(project, 'runner.lock'):
+        return False
+    try:
+        pid = int(lock.read_text(encoding='utf-8').strip() or 0)
+    except (OSError, ValueError):
+        return False
+    return resume_core.pid_alive(pid)
+
+
+def take_hook_lock(project, folder):
+    """O_EXCL lock so parallel PostToolUse hooks don't overwrite each other.
+    A tracked (planted) or stale lock is removed instead of making every
+    hook skip forever."""
+    lock = folder / 'hook.lock'
+    for _ in range(2):
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+            return lock
+        except FileExistsError:
+            try:
+                age = time.time() - lock.lstat().st_mtime
+            except OSError:
+                continue
+            if age < HOOK_LOCK_STALE and not lock.is_symlink() and not tracked(project, 'hook.lock'):
+                return None  # another hook is running right now
+            lock.unlink(missing_ok=True)
+    return None
+
+
 def plan_state(project, previous, plan, session_id):
     tasks = [dict(content=p['step'], status=p['status']) for p in plan
              if isinstance(p, dict) and isinstance(p.get('step'), str)
@@ -129,7 +166,7 @@ def handle(payload):
         return {}
     run = read_json(folder / 'run.json')
     run_id = os.environ.get('CODEX_QUOTA_RUN_ID')
-    if (folder / 'runner.lock').exists() and run_id != run.get('run_id'):
+    if run_id != run.get('run_id') and runner_active(project, folder):
         return {}
     if run_id and run.get('thread_id') not in (None, session_id):
         return {}
@@ -206,16 +243,14 @@ def main():
         if not isinstance(payload, dict):
             raise ValueError('Invalid hook input')
         # Parallel PostToolUse hooks must not overwrite each other's checkpoint.
-        folder = state_dir(Path(payload.get('cwd') or os.getcwd()))
+        project = Path(payload.get('cwd') or os.getcwd())
+        folder = state_dir(project)
         folder.mkdir(exist_ok=True)
-        lock = folder / 'hook.lock'
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
+        lock = take_hook_lock(project, folder)
+        if lock is None:
             print('{}')
             return
         try:
-            os.close(fd)
             result = handle(payload)
         finally:
             lock.unlink(missing_ok=True)

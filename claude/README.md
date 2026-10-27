@@ -444,19 +444,22 @@ Anthropic likely changed the schema — update the field names in
   but isn't a hard guarantee. The real memory is `progress.md` + git commits
   — put anything critical there.
 - **`acceptEdits` + git permission warning.** By default the wrapper runs
-  with `--permission-mode acceptEdits --allowedTools "Bash(git *)"` (so it
+  with `--permission-mode acceptEdits --allowedTools "Bash(git add:*),Bash(git commit:*),Bash(git status:*)"` (so it
   can keep editing *and committing* headlessly across resumes without
   asking). The git allowance was added after a real headless run got
   permanently stuck: `acceptEdits` on its own auto-approves file edits but
   **not** Bash tool calls, and `git commit` specifically requires approval
   by default — with no one available to approve it in an unattended run,
   Claude gave up and ended the turn without ever committing, silently
-  defeating this tool's whole progress-tracking model. Other Bash commands
+  defeating this tool's whole progress-tracking model. Only `git add`,
+  `git commit` and `git status` are granted, not `git *`: a blanket git grant
+  would also let a headless run execute anything via `git -c ...`, aliases or
+  `git diff --output=<file>` without asking. Other Bash commands
   a real task might need (running a test suite, package installs, etc.)
   are **not** covered by this default and can hit the same wall — if your
   task needs those unattended, add them yourself via `CC_CLAUDE_ARGS`
   (replaces the default entirely, so re-include
-  `--permission-mode acceptEdits --allowedTools "Bash(git *)" ...` plus
+  `--permission-mode acceptEdits --allowedTools "Bash(git add:*),Bash(git commit:*),Bash(git status:*)" ...` plus
   whatever else you need). If none of this is acceptable, set
   `CC_CLAUDE_ARGS=""` and run interactively. Check `claude --help` for
   current flags — they can change.

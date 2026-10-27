@@ -77,7 +77,7 @@ BUFFER_SECONDS="${CC_RESUME_BUFFER:-60}"
 # WITHOUT asking. If that's not acceptable, set CC_CLAUDE_ARGS="" and run
 # interactively instead.
 #
-# --allowedTools "Bash(git *)" is included in the default (not just
+# --allowedTools "Bash(git add:*),Bash(git commit:*),Bash(git status:*)" is included in the default (not just
 # acceptEdits alone) because acceptEdits does NOT cover Bash tool calls —
 # confirmed live: a headless run hit "This command requires approval" on
 # every git add/commit attempt and stalled with no one to answer the
@@ -87,6 +87,12 @@ BUFFER_SECONDS="${CC_RESUME_BUFFER:-60}"
 # item boundary (progress tracking, and hard-abort's "clean tree at item
 # start" assumption), so refusing to grant this by default doesn't make
 # the tool safer, it just makes it silently stall on real tasks.
+#
+# Only these three git subcommands, not "Bash(git *)": that would also
+# allow `git -c core.sshCommand=... <cmd>`, `git config alias.x '!sh ...'`
+# and `git diff/log --output=<any file>` without a prompt, i.e. arbitrary
+# command execution / file writes for a prompt-injected headless run.
+# (One argument: --allowedTools takes a comma/space-separated list.)
 #
 # An array, not a plain string: "Bash(git *)" contains a literal space
 # inside one logical argument, which a plain string later expanded
@@ -100,7 +106,7 @@ BUFFER_SECONDS="${CC_RESUME_BUFFER:-60}"
 if [[ -n "${CC_CLAUDE_ARGS+set}" ]]; then
   read -ra CLAUDE_ARGS_ARR <<< "$CC_CLAUDE_ARGS"
 else
-  CLAUDE_ARGS_ARR=(--permission-mode acceptEdits --allowedTools "Bash(git *)")
+  CLAUDE_ARGS_ARR=(--permission-mode acceptEdits --allowedTools "Bash(git add:*),Bash(git commit:*),Bash(git status:*)")
 fi
 PROJ="$(pwd)"
 

@@ -450,7 +450,7 @@ içindeki `_normalize()` fonksiyonundaki alan adlarını güncelleyin.
   garanti değildir. Gerçek hafıza `progress.md` + git commit'leridir; kritik
   olan her şeyi oraya yazın.
 - **`acceptEdits` + git izni uyarısı.** Wrapper varsayılan olarak
-  `--permission-mode acceptEdits --allowedTools "Bash(git *)"` ile çalışır
+  `--permission-mode acceptEdits --allowedTools "Bash(git add:*),Bash(git commit:*),Bash(git status:*)"` ile çalışır
   (sormadan devam edebilsin *ve commit atabilsin* diye). Git izni, gerçek
   bir headless çalıştırmanın kalıcı olarak takılıp kalmasından sonra
   eklendi: `acceptEdits` tek başına dosya düzenlemelerini otomatik
@@ -463,7 +463,7 @@ içindeki `_normalize()` fonksiyonundaki alan adlarını güncelleyin.
   **kapsamında değil**, aynı duvara çarpabilir — görevin bunlara headless
   ihtiyaç duyuyorsa `CC_CLAUDE_ARGS` ile kendin ekle (varsayılanın
   tamamının yerini alır, o yüzden `--permission-mode acceptEdits
-  --allowedTools "Bash(git *)" ...` kısmını da tekrar dahil et, ihtiyacın
+  --allowedTools "Bash(git add:*),Bash(git commit:*),Bash(git status:*)" ...` kısmını da tekrar dahil et, ihtiyacın
   olan başka şeylerle birlikte). Hiçbiri kabul edilemezse `CC_CLAUDE_ARGS=""`
   ile kapatıp etkileşimli çalıştırın. Güncel bayraklar için `claude
   --help`'e bakın — zamanla değişebilir.

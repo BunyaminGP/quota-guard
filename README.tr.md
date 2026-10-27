@@ -39,41 +39,47 @@ Ortak zamanlama ve durum mantığı `common/resume_core.py` içinde.
 
 ## Kurulum
 
-```bash
-git clone https://github.com/BunyaminGP/quota-guard
+Sadece kullandığın araç için kur: aşağıdaki tarifler birbirinden bağımsız. Her
+CLI yalnızca kendi manifestini okur ve yalnızca kendi kancalarını yükler.
+`PATH` üzerinde Python 3.10+ gerekir.
+
+**Claude Code**: Claude Code'un içinde:
+
+```
+/plugin marketplace add BunyaminGP/quota-guard
+/plugin install quota-guard@quota-guard
 ```
 
-Her CLI yalnızca kendi manifestini okur ve yalnızca kendi kancalarını yükler.
-
-**Claude Code**
-
-```bash
-claude plugin marketplace add ./quota-guard      # ya da: BunyaminGP/quota-guard
-claude plugin install quota-guard@quota-guard
-```
-
+(ya da terminalden: `claude plugin marketplace add BunyaminGP/quota-guard`, sonra
+`claude plugin install quota-guard@quota-guard`). Claude Code'u yeniden başlat.
 Eşikler, dil, bildirim URL'si ve otomatik devam `/plugin` → quota-guard →
 *Configure* ekranından ayarlanır.
 
-**Codex CLI**
+**Codex CLI**: terminalden:
 
 ```bash
-codex plugin marketplace add ./quota-guard
+codex plugin marketplace add BunyaminGP/quota-guard
 codex plugin add quota-guard@quota-guard
 ```
 
-Sonra Codex'te `/hooks` ekranını aç ve quota-guard'ın iki kancasına **trust**
-ver (Codex onaylanmamış kancaları çalıştırmaz; güncellemeden sonra tekrar bak).
-Eklenti sistemi olmadan: `python quota-guard/codex/install.py`.
+Sonra Codex'i aç, `/hooks` ekranında quota-guard'ın iki kancasına **trust**
+ver. Codex onaylanmamış kancaları çalıştırmaz; güncellemeden sonra tekrar bak.
+Eklenti sistemi olmadan: repoyu klonla ve `python quota-guard/codex/install.py`
+çalıştır.
 
-**Antigravity CLI**
+**Antigravity CLI**: `agy plugin install` yerel bir klasör istiyor, önce klonla:
 
 ```bash
+git clone https://github.com/BunyaminGP/quota-guard
 agy plugin install ./quota-guard
 ```
 
-Ardından Antigravity'yi yeniden başlat. `agy/install.ps1` / `agy/install.sh`
+Antigravity'yi yeniden başlat. `quota-guard/agy/install.ps1` / `install.sh`
 alternatiftir ve `agy-run` başlatıcısını da kurar (ikisinden birini kullan).
+
+**Bildirimler (isteğe bağlı, tüm araçlar):** telefonunda bir ntfy konusuna abone
+ol ve URL'sini `~/.quota-guard/settings.json` dosyasına yaz (sonraki bölüm).
+Claude Code bunu *Configure* ekranından da alabilir.
 
 ## Üçünün ortak ayarları
 

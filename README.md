@@ -39,41 +39,46 @@ wait again. The timing and state logic they share lives in `common/resume_core.p
 
 ## Install
 
-```bash
-git clone https://github.com/BunyaminGP/quota-guard
+Install it only for the tools you use: each recipe below stands alone. Each CLI
+reads only its own manifest and loads only its own hooks. Requires Python 3.10+
+on `PATH`.
+
+**Claude Code**: inside Claude Code:
+
+```
+/plugin marketplace add BunyaminGP/quota-guard
+/plugin install quota-guard@quota-guard
 ```
 
-Each CLI reads only its own manifest and loads only its own hooks.
-
-**Claude Code**
-
-```bash
-claude plugin marketplace add ./quota-guard      # or: BunyaminGP/quota-guard
-claude plugin install quota-guard@quota-guard
-```
-
-Thresholds, language, notification URL and auto-resume are set in `/plugin` →
+(or from a terminal: `claude plugin marketplace add BunyaminGP/quota-guard`, then
+`claude plugin install quota-guard@quota-guard`). Restart Claude Code. Set the
+thresholds, language, notification URL and auto-resume in `/plugin` →
 quota-guard → *Configure*.
 
-**Codex CLI**
+**Codex CLI**: from a terminal:
 
 ```bash
-codex plugin marketplace add ./quota-guard
+codex plugin marketplace add BunyaminGP/quota-guard
 codex plugin add quota-guard@quota-guard
 ```
 
-Then open `/hooks` in Codex and **trust** the two quota-guard hooks (Codex never
-runs untrusted hooks; re-check after an update). Without the plugin system:
-`python quota-guard/codex/install.py`.
+Then start Codex, open `/hooks` and **trust** the two quota-guard hooks. Codex
+never runs untrusted hooks; check again after an update. Without the plugin
+system: clone the repo and run `python quota-guard/codex/install.py`.
 
-**Antigravity CLI**
+**Antigravity CLI**: `agy plugin install` takes a local folder, so clone first:
 
 ```bash
+git clone https://github.com/BunyaminGP/quota-guard
 agy plugin install ./quota-guard
 ```
 
-Restart Antigravity afterwards. `agy/install.ps1` / `agy/install.sh` are the
+Restart Antigravity. `quota-guard/agy/install.ps1` / `install.sh` are the
 alternative that also installs the `agy-run` launcher (use one of the two).
+
+**Notifications (optional, all tools):** subscribe to an ntfy topic on your phone
+and put its URL in `~/.quota-guard/settings.json` (see the next section). Claude
+Code can also take it from its *Configure* screen.
 
 ## Settings shared by all three
 

@@ -135,28 +135,56 @@ def _kill_process_tree(proc: subprocess.Popen) -> None:
                     pass
 
 
+def _write_text_atomic(path: Path, text: str) -> None:
+    """Fresh mkstemp file + os.replace(): replaces `path` itself instead of
+    writing through a symlink a cloned repo may have planted there."""
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".md")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, str(path))
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _unsafe_state_path(path: Path) -> bool:
+    if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+        return True
+    return path.exists() and not (path.is_dir() if path.name == STATE_DIR_NAME else path.is_file())
+
+
 def _ensure_progress_file(proj: Path) -> Path:
     qdir = proj / STATE_DIR_NAME
-    qdir.mkdir(parents=True, exist_ok=True)
     pf = qdir / "progress.md"
+    if _unsafe_state_path(qdir) or _unsafe_state_path(pf):
+        print(f"❌ [agy-quota-guard] Refusing to run: {STATE_DIR_NAME}/ or {STATE_DIR_NAME}/progress.md "
+              "is a symlink or not a regular file/folder (it may have come with a cloned repo).", file=sys.stderr)
+        sys.exit(2)
+    qdir.mkdir(parents=True, exist_ok=True)
     tmpl = PLUGIN_ROOT / "templates" / "progress.md"
     if not pf.exists():
         if tmpl.exists():
-            pf.write_text(tmpl.read_text(encoding="utf-8"), encoding="utf-8")
+            _write_text_atomic(pf, tmpl.read_text(encoding="utf-8"))
         else:
-            pf.write_text("# Task Progress\n\n", encoding="utf-8")
+            _write_text_atomic(pf, "# Task Progress\n\n")
     else:
         text = pf.read_text(encoding="utf-8")
         if DONE_MARKER_RE.search(text):
             stamp = time.strftime("%Y-%m-%d %H:%M:%S")
             updated = DONE_MARKER_RE.sub(f"AGY_QUOTA_DONE_ARCHIVED ({stamp})", text)
-            pf.write_text(updated, encoding="utf-8")
+            _write_text_atomic(pf, updated)
             print("ℹ️  Archived previous AGY_QUOTA_DONE marker in .agy-quota/progress.md", flush=True)
     return pf
 
 
 def _has_done_marker(pf: Path) -> bool:
-    if not pf.exists():
+    if pf.is_symlink() or not pf.exists():
         return False
     try:
         return bool(DONE_MARKER_RE.search(pf.read_text(encoding="utf-8")))
